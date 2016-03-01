@@ -1,0 +1,126 @@
+---
+title: "Machine Learning Final Project"
+author: "awmillar"
+date: "Tuesday, March 01, 2016"
+output: html_document
+---
+### 1 .Purpose
+
+The Purpose of this report is to try to predict a classification (data set variable 'classe') for the quality of dumbbell exercise using predictors related to acelerometer data. These data are gathered from 4 points, 
+
+1) a belt around the waist of the exerciser
+2) at the forearm of the exerciser,
+3) on the dumbbell the exerciser is using, and
+4) on the arm of the exerciser
+
+The individuals doing the exercises created the data by doing exercises correctly (with 'classe' labeled 'A') and then incorrectly in 4 different ways (with 'classe' labels 'B','C', 'D', and 'E')
+
+### 2. Narrowing down the data
+
+Since we are allowed to use any of the 160 variables, narrowing them down will be essential. The first step to take is to understand the training variables:
+
+```{r echo=FALSE, message=FALSE}
+setwd( "C:/LakkeIsLekka/LaMiene2/Learning/DataScienceToolkit - PAID/MACHINE 8/sets/machine")
+library(caret)
+library(RANN)
+library(ggplot2)
+library(rpart)
+library(randomForest)
+training<- read.csv("pml-training.csv")
+testing<- read.csv("pml-testing.csv")
+set.seed(11111)
+```
+```{r echo=FALSE}
+summary(training)
+```
+
+When a summary of the variables is performed, it becomes clear that there are many variables that have incomplete data. Variables that seem to have data for every observation are only 53 out of the 160 variables.
+
+```{r echo=FALSE}
+smalltrain<-training[c("num_window","roll_belt","pitch_belt","yaw_belt","total_accel_belt","gyros_belt_x","gyros_belt_y","gyros_belt_z","accel_belt_x","accel_belt_y","accel_belt_z","magnet_belt_x","magnet_belt_y","magnet_belt_z","roll_arm","pitch_arm","yaw_arm","total_accel_arm","gyros_arm_x","gyros_arm_y","gyros_arm_z","accel_arm_x","accel_arm_y","accel_arm_z","magnet_arm_x","magnet_arm_y","magnet_arm_z","roll_dumbbell","pitch_dumbbell","yaw_dumbbell","total_accel_dumbbell","gyros_dumbbell_x","gyros_dumbbell_y","gyros_dumbbell_z","accel_dumbbell_x","accel_dumbbell_y","accel_dumbbell_z","magnet_dumbbell_x","magnet_dumbbell_y","magnet_dumbbell_z","roll_forearm","pitch_forearm","yaw_forearm","total_accel_forearm","gyros_forearm_x","gyros_forearm_y","gyros_forearm_z","accel_forearm_x","accel_forearm_y","accel_forearm_z","magnet_forearm_x","magnet_forearm_y","magnet_forearm_z","classe")]
+
+print(colnames(smalltrain))
+```
+
+With 'classe' being the classification we want to predict. 
+
+We also have one other constraint - **we do not know the test set 'classe values'!** The only way to find them out is to build a model and submit the model's prediction, and then we will only be supplied with matches ( correct predictions) so the more right are original model is, the better it will be to help us refine it. In addition, we can only query the test data 3 times.
+
+### 3. Initial modeling.
+
+Without doing a great deal of exploratory analysis, we need to use a method that will 
+a) be fairly accurate, and 
+b) provide a baseline for further predictions
+c) get better as we add more predictors
+
+Based on what we know of the test data, we can see that 'total acceleration' values for all of the 4 measurement points are included in the subset of data that have usable values for all the observations. These variables are
+
+total_accel_belt
+total_accel_arm
+total_accel_dumbbell
+total_accel_forearm
+
+These four will be our starting point to differentiate the types of correctly or incorrectly performed exercises, since they are a short list, but they collect data at all of the acelerometer points. 
+
+In terms of the type of machine learning algorithm to perform, we will use **random forests**. This choice is because we need as much accuracy as possible. Limiting the initial model to only 4 variables to start will hopefully mitigate the constraints on memory that we have, while leaving the door open for another larger set of variables, as random forests actually works better with more variables. However, for the sake of keeping memory costs low, we will be trying to select additional variables ourselves.
+
+```{r}
+modelfit1<-train(classe ~ total_accel_belt + total_accel_arm + total_accel_dumbbell +total_accel_forearm ,method="rf",data=training)
+pred_1<- predict(modelfit1,testing)
+
+print(modelfit1$finalModel)
+print(modelfit1)
+print(pred_1)
+
+```
+As we see from the accuracy on the training set,
+
+While this level of out of sample error (30.3%) is quite low for an initial model, refining it with additional predictors might help to increase the accuracy, especially given that the random forest methods does better with larger numbers of predictors. 
+In order to do this and not overburden our limited computing power, we will need to determine which of the other 48 descriptors might provide differentiation between the various classes of exercises.
+
+### 4. Adding more descriptors
+
+To start, we will take a look at of all means of each of the variables calculated for each of the 5 classifications, A through E.
+```{r message = FALSE, warning = FALSE}
+aggregate(dubtrain, by=list(dubtrain$classe), FUN=mean)
+```
+From there, we can start to run some descriptive plots on the most promising of these:
+
+```{r echo=FALSE}
+g<- qplot(classe, yaw_belt, data = dubtrain,geom = "boxplot")
+g+ geom_jitter(width = 0.2)
+
+h<- qplot(classe, yaw_forearm, data = dubtrain,geom = "boxplot")
+h+ geom_jitter(width = 0.2)
+
+i<- qplot(classe, accel_forearm_x, data = dubtrain[dubtrain$gyros_forearm_z <+ 25,],geom = "boxplot")
+i+ geom_jitter(width = 0.2)
+
+j<- qplot(classe, magnet_arm_x, data = dubtrain[dubtrain$gyros_forearm_z <+ 25,],geom = "boxplot")
+j+ geom_jitter(width = 0.2)
+
+k<- qplot(classe, roll_dumbbell, data = dubtrain[dubtrain$gyros_forearm_z <+ 25,],geom = "boxplot")
+k+ geom_jitter(width = 0.2)
+```
+These plots give some indication that the variables "yaw_belt", "yaw_forearm", "accel_forearm_x", "magnet_arm_x", and "roll_dumbbell" show some degree of differentiation across the five classifications. Thus, by adding these to the model, it will likely be more accurate.
+
+### 5. New model with additional predictors
+
+We will now create a new model with the additional predictors
+
+```{r}
+modelfit2<-train(classe ~total_accel_belt + total_accel_arm + total_accel_dumbbell + total_accel_forearm + yaw_belt + yaw_forearm + accel_forearm_x + magnet_arm_x +roll_dumbbell ,method="rf",data=training)
+pred_2<- predict(modelfit2,testing)
+
+print(modelfit2$finalModel)
+print(modelfit2)
+print(pred_2)
+
+```
+
+This prediction model seems to do a better job, with an out of sample error rate of of (2.5%). 
+
+
+### Results
+
+When finally put up to the true test - **the test set**, it produces only two errors out of 20. (test observations #1 and #6). Interestingly, it turns out the original model produced 5 errors, out of twenty, but did manage to predict #6 correctly, when our better model got it wrong.
